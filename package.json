@@ -1,0 +1,22 @@
+{
+  "name": "dsh-lot2-metrics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "preflight": "node test/preflight.mjs"
+  },
+  "description": "lot2 数据库指标快照的只读呈现与查询（agent 工具 + /plugins/dsh-lot2-metrics/status）；契约见 dsfolder 的跨项目集成机制文档 §9",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

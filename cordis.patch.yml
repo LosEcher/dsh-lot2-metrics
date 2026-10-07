@@ -1,0 +1,9 @@
+# dsh-lot2-metrics bundle patch: host row (registers lot2_metrics_* agent tools
+# and the read-only GET /plugins/dsh-lot2-metrics/status endpoint).
+# Install: dsh plugin --profile web add link:/Users/echerlos/syncfolder/project/dsplugins/dsh-lot2-metrics
+- insert:
+    - id: dsh-lot2-metrics
+      name: dsh-lot2-metrics
+      config:
+        # 缺省值见 index.mjs resolveConfig()；这里只在需要偏离缺省时覆盖。
+        staleSeconds: 1500
