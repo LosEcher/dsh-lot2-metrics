@@ -167,6 +167,32 @@ export function apply(ctx, config) {
     log('warn', `status route unavailable: ${error instanceof Error ? error.message : String(error)}`)
   }
 
+  // ── 3) 只读数据端点（给 client 半的 tab 用；与 status 同源）────────────────
+  try {
+    ctx.effect(() => ctx.webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-lot2-metrics/snapshot',
+      handler: async (_req, res) => {
+        const s = await readSummary()
+        // 快照读不到时返回 200 + 明确的空形状（而不是 5xx）：client 据此显示"读不到"
+        // 而不是把网络错误误显示成"没有数据"。
+        const payload = s ?? {
+          ok: false, incompatible: false, stale: true, ageSeconds: null,
+          staleSeconds: cfg.staleSeconds, capturedAt: null, contractVersion: null,
+          flavor: null, snapshotPath: cfg.snapshotPath, queryRows: 0,
+          topByCount: [], topByAmplification: [], observedSeries: null,
+          httpRequestsTotal: null, requestsDelta: null,
+          notes: lastError ?? 'snapshot unreadable', collector: null,
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+        res.end(JSON.stringify(payload))
+      },
+    }), 'dsh-lot2-metrics: route /plugins/dsh-lot2-metrics/snapshot')
+    log('info', 'data route mounted at /plugins/dsh-lot2-metrics/snapshot')
+  } catch (error) {
+    log('warn', `data route unavailable: ${error instanceof Error ? error.message : String(error)}`)
+  }
+
   log('info', `ready (snapshot=${cfg.snapshotPath}, stale=${cfg.staleSeconds}s)`)
 }
 
