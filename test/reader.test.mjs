@@ -20,7 +20,7 @@ function lot2Snapshot(overrides = {}) {
   return {
     v: 1,
     capturedAt: '2026-10-07T11:59:30.000Z',
-    source: { endpoint: 'http://100.82.176.56:8086/metrics' },
+    source: { endpoint: 'http://lot2-backend.invalid:8086/metrics' },
     scrape: { ok: true, httpStatus: 200, durationMs: 35, error: null },
     totals: { observedSeries: 37, histogramLines: 481, httpRequestsTotal: 86 },
     counterReset: false,

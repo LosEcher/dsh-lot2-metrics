@@ -1,6 +1,6 @@
 # dsh-lot2-metrics bundle patch: host row (registers lot2_metrics_* agent tools
 # and the read-only GET /plugins/dsh-lot2-metrics/status endpoint).
-# Install: dsh plugin --profile web add link:/Users/echerlos/syncfolder/project/dsplugins/dsh-lot2-metrics
+# Install: # Install: dsh plugin --profile web add link:<这个仓的本机路径>
 - insert:
     - id: dsh-lot2-metrics
       name: dsh-lot2-metrics

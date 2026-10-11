@@ -45,7 +45,7 @@
 ```bash
 # A) 本地开发（改了就生效，推荐给正在改这个插件的人）：link 到工作副本
 cd ~/.dsh/profiles/web
-dsh plugin --profile web add link:/Users/echerlos/syncfolder/project/dsplugins/dsh-lot2-metrics
+dsh plugin --profile web add link:<这个仓的本机路径>
 
 # B) 直接用发布版
 dsh plugin --profile web add github:LosEcher/dsh-lot2-metrics#main
