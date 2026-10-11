@@ -43,14 +43,42 @@
 ## 安装
 
 ```bash
-# 1) 作为 profile layer 加入（需 package.json 声明 dsh.bundle.patch —— 本仓已声明）
+# A) 本地开发（改了就生效，推荐给正在改这个插件的人）：link 到工作副本
 cd ~/.dsh/profiles/web
 dsh plugin --profile web add link:/Users/echerlos/syncfolder/project/dsplugins/dsh-lot2-metrics
-# 2) 首次挂载可热生效；**改本仓代码后必须重启对应宿主**（ESM 按 URL 缓存）
+
+# B) 直接用发布版
+dsh plugin --profile web add github:LosEcher/dsh-lot2-metrics#main
 ```
+# 首次挂载可热生效（config-only）；**改 host 半代码后必须重启对应宿主**（Node ESM 按 URL 缓存）。
+# 只改 client 半（`src/client/*` + `npm run build`）则刷新页面即可——产物由宿主直接 serve。
 
 `desktop` profile 要同样的工具，就把上面命令的 `web` 换成 `desktop`（**会重启桌面宿主**，
 正在跑的会话会被打断 ⇒ 挑窗口做）。
+
+## 看不到「lot2 指标」tab 时
+
+这个 tab 属于 **DSH shell 的会话视图**，桌面 App（GUI）与浏览器（web）渲染的是同一个 shell；
+两边都可能因为**没有通过 DSH 的浏览器认证**而什么都看不到。
+
+- **本机**：`dsh web` 的浏览器认证要一个**每进程随机**的 launch token URL（不是普通的
+  `http://127.0.0.1:3080/`）。daemon 以 `--no-open` 启动，所以这个 URL 只写在
+  `~/.dsh/logs/dsh-web.log` 的一行里，看起来就像"web 打不开了"。取它：
+  ```sh
+  dsh-web-url            # = ~/.dsh/scripts/dsh-web-url.sh，会顺便校验这条还灵不灵
+  dsh-web-url --open     # 直接打开
+  ```
+  cookie 是持久的（签名密钥在 `~/.dsh/.credentials.yaml`，30 天有效）⇒ **每个浏览器只需要这个
+  URL 一次**；之后即使重启宿主也还在。
+- **远程（手机/别的机器）**：走 `tailscale serve` 的域名，会先过 `dsh-access-gate` 的访问码，
+  再完成同一个 token 交换：
+  ```sh
+  dsh-web-url --remote   # 打印 https://<你的 tailnet 域名>/?token=…
+  ```
+- **SSH 隧道/端口转发类客户端**（例如 Otty）：如果它把请求送成 `Host: 127.0.0.1:3088` 且不带
+  `X-Forwarded-For`，`dsh-access-gate` 会按"直接本机"放行（这是它的设计）⇒ **不会弹访问码**，
+  直接撞上 DSH 的 token 认证。此时同样用 `dsh-web-url`（带上 token）即可进去，而不是反复刷新。
+- 进去之后 tab 本身还有独立的状态语义（见上）：契约不兼容 / 采集失败 / 过期 / 新鲜，四种都会显示。
 
 ## 验收
 
