@@ -84,9 +84,13 @@ export function apply(ctx, config) {
     if (!force && cache.summary && now - cache.at < 2_000) return cache.summary
     try {
       const { result, path } = await readSnapshotFile(cfg.snapshotPath)
-      const summary = summarize({ result, path, staleSeconds: cfg.staleSeconds, topN: cfg.topN })
-      // 采集侧状态（可选）：只透出 verdict/连续失败，不参与判断快照本身
+      // 采集侧状态：先读，再交给 summarize —— 阈值**只由采集器判**并落盘（单一真源），
+      // 面板/工具只读它的结论，绝不自己再判一遍（那是第二评分源）。
       const st = readJsonSafe(cfg.statePath)
+      const summary = summarize({
+        result, path, staleSeconds: cfg.staleSeconds, topN: cfg.topN,
+        collectorState: st.value ?? null,
+      })
       if (st.value) {
         summary.collector = {
           verdict: st.value.verdict ?? null,
@@ -94,6 +98,10 @@ export function apply(ctx, config) {
           consecutiveFailures: st.value.consecutiveFailures ?? null,
           keySource: st.value.keySource ?? null,
           lastRunAt: st.value.lastRunAt ?? null,
+          // 失败分类（A1）：让面板能说"凭据失效"而不是笼统的"采集失败"
+          lastFailReason: st.value.lastFailReason ?? null,
+          faultSince: st.value.faultSince ?? null,
+          degraded: st.value.degraded === true,
         }
       }
       lastError = result.ok ? null : (result.notes ?? 'snapshot not ok')

@@ -225,3 +225,32 @@
   color: var(--dsw-alias-label-dimmed);
   cursor: default;
 }
+
+/* 阈值行（2026-10-11）：徽章 + 标识符 + 说明三段式，说明可截断（title 放全文）。 */
+.thrList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.thrItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.thrName {
+  /* 与 .mono 同一字体栈：主题层没有对应的 mono 字号令牌（实测 grep 无），
+     写成 var() 只会静默 fallback——不如直接写栈。 */
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--dsw-alias-label-primary);
+  flex: 0 0 auto;
+}
+.thrDetail {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}

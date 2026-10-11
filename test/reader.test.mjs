@@ -151,3 +151,95 @@ test('looksLikeLot2 / adaptLot2 的边界', () => {
   assert.equal(adapted.tables[0].rows[0].length, 6, '列数固定为 6（含 amplification 占位）')
   assert.equal(adapted.tables[0].rows[0][5], null)
 })
+
+// ── 运行期 runtime（2026-10-11 快照兼容扩展 v=1）───────────────────────────
+const RUNTIME = {
+  gauges: { db_connections_open: 2, goroutines_count: 36, memory_usage_bytes: 29717048, websocket_connected_clients: 2, tasks_in_progress: 0 },
+  absent: ['snapshot_queue_depth', 'unified_queue_depth'],
+  counters: { cache_hits_total: 0 },
+  counterDelta: { snapshot_backpressure_rejections_total: null, cache_hits_total: null },
+  http: { total: 1103, serverError: 0, clientError: 7, serverErrorRate: 0, serverErrorDelta: null },
+  cache: { hits: 0, misses: 0, hitRate: null },
+}
+
+test('runtime：gauge 进 runtimeMetrics，且带单位（42 与 42 字节不是一回事）', () => {
+  const r = normalizeSnapshot(lot2Snapshot({ runtime: RUNTIME }))
+  const s = summarize({ result: r, path: '/x', now: NOW })
+  assert.equal(s.runtimePresent, true)
+  const g = Object.fromEntries(s.runtimeMetrics.map((m) => [m.name, m]))
+  assert.equal(g.goroutines_count.value, 36)
+  assert.equal(g.goroutines_count.unit, 'count')
+  assert.equal(g.memory_usage_bytes.unit, 'bytes')
+  assert.equal(g.websocket_connected_clients.value, 2)
+})
+
+test('runtime：声明了却没上报的名字进 unknownMetrics，**绝不写成 0**', () => {
+  const r = normalizeSnapshot(lot2Snapshot({ runtime: RUNTIME }))
+  const s = summarize({ result: r, path: '/x', now: NOW })
+  assert.deepEqual(s.unknownMetrics, ['snapshot_queue_depth', 'unified_queue_depth'])
+  assert.equal(s.runtimeMetrics.some((m) => m.name === 'snapshot_queue_depth'), false)
+})
+
+test('runtime：算不出来的比值给 null + reason，而不是省略（省略会被读成"没这一项"）', () => {
+  const r = normalizeSnapshot(lot2Snapshot({ runtime: RUNTIME }))
+  const s = summarize({ result: r, path: '/x', now: NOW })
+  const hit = s.runtimeMetrics.find((m) => m.name === 'cache.hitRate')
+  assert.ok(hit, 'cache.hitRate 必须存在')
+  assert.equal(hit.value, null)
+  assert.match(hit.reason, /命中\+未命中 = 0/)
+  const rate = s.runtimeMetrics.find((m) => m.name === 'http.serverErrorRate')
+  assert.equal(rate.value, 0)
+  assert.equal(rate.reason, null)
+})
+
+test('runtime：无基线（counterDelta=null）显式给原因，不是 0', () => {
+  const r = normalizeSnapshot(lot2Snapshot({ runtime: RUNTIME }))
+  const s = summarize({ result: r, path: '/x', now: NOW })
+  const d = s.runtimeMetrics.find((m) => m.name === 'delta.snapshot_backpressure_rejections_total')
+  assert.equal(d.value, null)
+  assert.match(d.reason, /无基线/)
+})
+
+test('runtime：旧快照（没有 runtime 段）⇒ runtimePresent=false 且不假装有数字', () => {
+  const r = normalizeSnapshot(lot2Snapshot())
+  const s = summarize({ result: r, path: '/x', now: NOW })
+  assert.equal(s.runtimePresent, false)
+  assert.deepEqual(s.runtimeMetrics, [])
+  assert.deepEqual(s.unknownMetrics, [])
+})
+
+test('runtime：ok=false 时 runtime 数字一律不给（与 queries 同一条纪律）', () => {
+  const r = normalizeSnapshot(lot2Snapshot({ runtime: RUNTIME, scrape: { ok: false, httpStatus: 401 } }))
+  const s = summarize({ result: r, path: '/x', now: NOW })
+  assert.equal(s.ok, false)
+  assert.deepEqual(s.runtimeMetrics, [])
+  assert.deepEqual(s.unknownMetrics, [])
+})
+
+test('阈值：面板只读采集器的判定，三种状态都能区分（越界/查过没事/没数据）', () => {
+  const r = normalizeSnapshot(lot2Snapshot({ runtime: RUNTIME }))
+  const s = summarize({
+    result: r, path: '/x', now: NOW,
+    collectorState: {
+      thresholdsEvaluatedAt: '2026-10-07T11:59:40.000Z',
+      thresholds: [
+        { name: 'ws-zero', breached: true, value: 0, detail: '采集节点掉线' },
+        { name: '5xx', breached: false, value: 0, detail: '5xx 占比正常' },
+        { name: 'backpressure', breached: false, value: null, detail: '无基线（首份快照或计数器刚重置）' },
+      ],
+    },
+  })
+  assert.equal(s.thresholds.length, 3)
+  assert.equal(s.thresholds[0].breached, true)
+  assert.equal(s.thresholds[1].breached, false)
+  assert.equal(s.thresholds[2].value, null)          // 查过但没数据 ≠ 0
+  assert.match(s.thresholds[2].detail, /无基线/)
+  assert.equal(s.thresholdsEvaluatedAt, '2026-10-07T11:59:40.000Z')
+})
+
+test('阈值：采集器状态缺失 ⇒ 空数组（面板显示"未评估"，不显示绿灯）', () => {
+  const r = normalizeSnapshot(lot2Snapshot({ runtime: RUNTIME }))
+  const s = summarize({ result: r, path: '/x', now: NOW })
+  assert.deepEqual(s.thresholds, [])
+  assert.equal(s.thresholdsEvaluatedAt, null)
+})

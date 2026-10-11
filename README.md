@@ -1,7 +1,7 @@
 # dsh-lot2-metrics
 
 把 **lot2 后端数据库指标**的采集快照变成 DSH 里"**agent 可查 + 可观测**"的东西。
-host-only 插件（无 client 半）：注册 2 个只读 agent 工具 + 1 个只读状态端点。
+两半都有：host 半注册 2 个只读 agent 工具 + 只读端点（`/status`、`/snapshot`）；client 半是一个 `lot2 指标` 会话 tab（`conversation.view`）。
 
 - **契约**：`dsfolder/CROSS-PROJECT-INTEGRATION-MECHANISM-2026-10-07.md` §9（"项目快照信封 v1"）
 - **归属**：取数与契约属 lot2（`lot2extension/scripts/metrics-report.mjs`）；触发与落盘属 DSH 采集
@@ -12,9 +12,23 @@ host-only 插件（无 client 半）：注册 2 个只读 agent 工具 + 1 个�
 
 | 面 | 内容 |
 |---|---|
-| 工具 | `lot2_metrics_overview`（概览：新鲜度/Top-N 调用量/放大倍数）；`lot2_metrics_query`（按 operation/关键字过滤 + 按 count/p95/deltaCount/amplification 排序 + Top-N） |
-| 端点 | `GET /plugins/dsh-lot2-metrics/status`（约定形状 `{ok,plugin,version,counts,lastError,detail}` + `cache-control: no-store`） |
+| 工具 | `lot2_metrics_overview`（概览：新鲜度/Top-N 调用量/放大倍数 + **采集器状态 + 阈值结论 + 运行期 gauge**）；`lot2_metrics_query`（按 operation/关键字过滤 + 按 count/p95/deltaCount/amplification 排序 + Top-N） |
+| 端点 | `GET /plugins/dsh-lot2-metrics/status`（约定形状）；`GET /plugins/dsh-lot2-metrics/snapshot`（面板数据源，`cache-control: no-store`） |
+| 视图 | 会话 tab「lot2 指标」（`conversation.view`，order 92）：阈值 → 运行期 → 调用量 Top → 放大倍数 Top；60s 轮询 + 手动刷新 |
 | 配置 | `snapshotPath` / `statePath` / `staleSeconds`（默认 1500）/ `topN`（默认 5） |
+
+### 运行期与阈值（2026-10-11 新增）
+
+快照侧多了一个 `runtime{}` 段（兼容变更，`v` 仍为 1）：声明式 gauge 清单 + `http`(5xx 等) + `cache` + `counterDelta`。
+本插件对它的三条显示纪律：
+
+1. **`value=null` + `reason` 要显示成 `—` 并给出原因**，不能省略——省略会让"分母为 0 所以算不出命中率"
+   看起来像"根本没有这一项"。面板与工具都这么做。
+2. **`unknown`（采集器声明了但 /metrics 没上报的名字）单独列出并标注"缺失≠0"**。
+   `snapshot_queue_depth` / `unified_queue_depth` 目前就长期在这种状态（按需注册）。
+3. **阈值不在本插件里判定**：采集器（`dsfolder/scripts/lot2-metrics-collect.sh`）判一次并落盘到
+   `collector-state.json` 的 `thresholds[]`，本插件只读结论。理由是**不能有第二个评分源**
+   （同一份事实两处实现 = 迟早不一致）。面板上三种状态都可区分：越界 / 正常 / 无数据。
 
 ## 四条语义（都有测试；不是"顺手加的"）
 

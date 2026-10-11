@@ -45,7 +45,23 @@ export interface SnapshotSummary {
   httpRequestsTotal: number | null
   requestsDelta: number | null
   notes: string | null
-  collector: { verdict: string | null; consecutiveFailures: number | null; lastRunAt: string | null } | null
+  // ── 运行期（2026-10-11 快照兼容扩展）─────────────────────────────────────
+  runtimePresent: boolean
+  /** value=null + reason = "算不出来/没上报"，必须显示成 — 并给出原因，不能省略。 */
+  runtimeMetrics: Array<{ name: string; value: number | null; unit: string | null; reason: string | null }>
+  /** 采集器声明了但 /metrics 没上报的名字（缺失≠0）。 */
+  unknownMetrics: string[]
+  /** 阈值结论来自采集器落盘的状态——面板**不重判**（单一真源）。 */
+  thresholds: Array<{ name: string | null; breached: boolean; value: number | null; detail: string | null }>
+  thresholdsEvaluatedAt: string | null
+  collector: {
+    verdict: string | null
+    consecutiveFailures: number | null
+    lastRunAt: string | null
+    lastFailReason: string | null
+    faultSince: string | null
+    degraded: boolean
+  } | null
 }
 
 const REFRESH_MS = 60_000
@@ -53,6 +69,13 @@ const REFRESH_MS = 60_000
 function fmtNum(v: number | null | undefined, digits = 0): string {
   if (typeof v !== 'number' || !Number.isFinite(v)) return '—'
   return Number.isInteger(v) && digits === 0 ? String(v) : v.toFixed(digits)
+}
+
+/** 字节数只做人类可读换算（快照里本身就是字节；不换算会看不出量级）。 */
+function fmtBytes(v: number | null): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return '—'
+  const mib = v / 1048576
+  return mib >= 1 ? `${mib.toFixed(1)} MiB` : `${(v / 1024).toFixed(0)} KiB`
 }
 
 function fmtAge(seconds: number | null): string {
@@ -89,6 +112,20 @@ const FALLBACK: Record<string, string> = {
   'view.col.amp': '放大',
   'view.approx': 'p95≈ 由直方图桶线性插值得到，是近似值',
   'view.snapshot': '快照',
+  'view.thresholds': '阈值',
+  'view.runtime': '运行期',
+  'view.unknown': '未上报',
+  'view.unknownNote': '采集器声明了但 /metrics 没有这一项——缺失不等于 0',
+  'view.thrBreached': '越界',
+  'view.thrOk': '正常',
+  'view.thrNoData': '无数据',
+  'view.thrNotEvaluated': '阈值未评估（读不到采集器状态）',
+  'view.thrAt': '判定于',
+  'view.degraded': '后端在退化',
+  'view.failReason': '失败类别',
+  'view.col.metric': '指标',
+  'view.col.value': '值',
+  'view.col.note': '说明',
   'view.incompatibleNotice': '快照声明的契约版本本插件不认识，因此拒绝解读（不显示任何数字是刻意设计）。',
   'view.failedNotice': '本次抓取失败。刻意不给数字——把上一次的值当成本次显示，正是契约明令禁止的失效模式。',
 }
@@ -155,6 +192,13 @@ export function Lot2MetricsView(props: Props) {
                   : ''}
               </span>
             )}
+            {/* 失败分类（A1）：'credential-invalid' 与 'unreachable' 的动作完全不同，
+                面板必须原样透出类别，而不是笼统地显示"采集失败"。 */}
+            {data.collector?.lastFailReason && (
+              <span className={`${css.pill} ${css.pillDim}`}>
+                {t('view.failReason')} <span className={css.mono}>{data.collector.lastFailReason}</span>
+              </span>
+            )}
           </>
         )}
         <button type="button" className={css.refresh} onClick={() => { void load() }} disabled={busy}>
@@ -185,6 +229,74 @@ export function Lot2MetricsView(props: Props) {
 
       {data && data.ok && !data.incompatible && (
         <>
+          {/* 阈值：判定只由采集器做一次并落盘（单一真源），本面板只显示结论。
+              三种状态必须能区分：越界 / 查过没事 / 查了但没数据（value=null）。 */}
+          <div className={css.section}>
+            <span className={css.sectionTitle}>{t('view.thresholds')}</span>
+            {data.thresholds.length === 0
+              ? <span className={css.pillDim}>{t('view.thrNotEvaluated')}</span>
+              : (
+                <div className={css.thrList}>
+                  {data.thresholds.map((thr, i) => {
+                    const noData = thr.value === null
+                    const dot: StateDotState = thr.breached ? 'error' : (noData ? 'idle' : 'done')
+                    const label = thr.breached ? t('view.thrBreached') : (noData ? t('view.thrNoData') : t('view.thrOk'))
+                    const cls = thr.breached ? css.badgeError : (noData ? css.badgeIdle : css.badgeDone)
+                    return (
+                      <div className={css.thrItem} key={`${thr.name ?? 'thr'}:${i}`}>
+                        <span className={`${css.badge} ${cls}`}>
+                          <StateDot state={dot} size={8} />
+                          {label}
+                        </span>
+                        <span className={css.thrName}>{thr.name ?? '—'}</span>
+                        <span className={css.thrDetail} title={thr.detail ?? ''}>{thr.detail ?? ''}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            {data.thresholdsEvaluatedAt && (
+              <span className={css.pillDim}>{t('view.thrAt')} <span className={css.mono}>{data.thresholdsEvaluatedAt}</span></span>
+            )}
+          </div>
+
+          {/* 运行期 gauge / 比值：value=null 显示 — 并把 reason 放在 title 与说明列（不省略） */}
+          {data.runtimePresent && (
+            <div className={css.section}>
+              <span className={css.sectionTitle}>{t('view.runtime')}</span>
+              <div className={css.tableWrap}>
+                <table className={css.table}>
+                  <thead>
+                    <tr>
+                      <th>{t('view.col.metric')}</th>
+                      <th className={css.num}>{t('view.col.value')}</th>
+                      <th>{t('view.col.note')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.runtimeMetrics.map((m) => (
+                      <tr key={m.name}>
+                        <td className={css.mono}>{m.name}</td>
+                        <td className={css.num} title={m.reason ?? ''}>
+                          {m.value === null
+                            ? '—'
+                            : `${fmtNum(m.value, m.unit === 'ratio' ? 4 : 0)}${m.unit === 'bytes' ? ` (${fmtBytes(m.value)})` : ''}`}
+                        </td>
+                        <td className={css.pillDim}>{m.reason ?? (m.unit ?? '')}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {data.unknownMetrics.length > 0 && (
+                <span className={css.pillDim}>
+                  {t('view.unknown')}: <span className={css.mono}>{data.unknownMetrics.join(', ')}</span>
+                  {' — '}{t('view.unknownNote')}
+                </span>
+              )}
+            </div>
+          )}
+
           <div className={css.section}>
             <span className={css.sectionTitle}>{t('view.topByCount')}</span>
             <div className={css.tableWrap}>
