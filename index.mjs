@@ -20,12 +20,13 @@
 import Schema from '@deepseek-ai/schemastery'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { readFileSync } from 'node:fs'
 import {
   readSnapshotFile, summarize, queryRows,
 } from './lib/reader.mjs'
 import { createToolDefs } from './lib/tools.mjs'
+import { readHistory } from './lib/history.mjs'
 
 export const name = 'dsh-lot2-metrics'
 export const inject = ['tools', 'webServer']
@@ -118,6 +119,9 @@ export function apply(ctx, config) {
   // ── 1) agent 工具（只读）────────────────────────────────────────────────
   for (const def of createToolDefs({
     readSummary: () => readSummary(),
+    // 历史快照与 latest.json **同目录**（snapshot-YYYYMMDD.jsonl）⇒ 从 snapshotPath 取 dirname。
+    // 只读：readHistory 只调 readdir/readFile，不写盘、不联网。
+    readHistory: () => readHistory(dirname(cfg.snapshotPath)),
     query: async (q) => {
       const { result } = await readSnapshotFile(cfg.snapshotPath)
       return queryRows(result, q)
